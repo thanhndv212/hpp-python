@@ -32,7 +32,12 @@ import abc
 import re
 import sys
 import numpy as np
-from pyhpp.constraints import Implicit, LockedJoint
+from pyhpp.constraints import (
+    ComparisonType,
+    ComparisonTypes,
+    Implicit,
+    LockedJoint,
+)
 
 
 class Constraints:
@@ -764,12 +769,26 @@ class ConstraintFactory(ConstraintFactoryAbstract):
             or len(self.graphfactory.envContacts) == 0
         ) and not placeAlreadyCreated:
             ljs = []
+            model = self.graph.robot.model()
             for n in self.graph.robot.getJointNames():
                 if n.startswith(o + "/"):
                     ljs.append(n)
                     q = self.graph.robot.getJointConfig(n)
+                    # Use EqualToZero so that rightHandSideFromConfig is a
+                    # no-op (equalityIndices is empty).  The Equality default
+                    # makes the joint a foliation constraint whose RHS is
+                    # updated from q_from on every generateTargetConfig call,
+                    # triggering a use-after-free in
+                    # ExplicitConstraintSet::rightHandSideFromInput.
+                    try:
+                        jid = model.getJointId(n)
+                        nv = model.joints[jid].nv
+                    except Exception:
+                        nv = len(q)
+                    comp = ComparisonTypes()
+                    comp[:] = tuple([ComparisonType.EqualToZero] * nv)
                     self.registerConstraint(
-                        LockedJoint(self.graph.robot, n, np.array(q)),
+                        LockedJoint(self.graph.robot, n, np.array(q), comp),
                         n,
                     )
             return dict(
